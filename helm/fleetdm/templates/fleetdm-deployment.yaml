@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fleetdm.fullname" . }}
+  labels:
+    {{- include "fleetdm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fleetdm
+spec:
+  replicas: {{ .Values.fleetdm.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "fleetdm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: fleetdm
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "fleetdm.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: fleetdm
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "fleetdm.serviceAccountName" . }}
+      containers:
+      - name: fleetdm
+        {{- with .Values.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        image: "{{ .Values.fleetdm.image.repository }}:{{ .Values.fleetdm.image.tag }}"
+        imagePullPolicy: {{ .Values.fleetdm.image.pullPolicy }}
+        command:
+        - /usr/bin/fleet
+        - serve
+        env:
+        - name: FLEET_MYSQL_ADDRESS
+          value: "{{ include "fleetdm.mysql.fullname" . }}:{{ .Values.mysql.service.port }}"
+        - name: FLEET_MYSQL_DATABASE
+          value: {{ .Values.mysql.env.MYSQL_DATABASE | quote }}
+        - name: FLEET_MYSQL_USERNAME
+          value: {{ .Values.mysql.env.MYSQL_USER | quote }}
+        - name: FLEET_MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "fleetdm.fullname" . }}
+              key: mysql-password
+        - name: FLEET_REDIS_ADDRESS
+          value: "{{ include "fleetdm.redis.fullname" . }}:{{ .Values.redis.service.port }}"
+        - name: FLEET_SERVER_ADDRESS
+          value: {{ .Values.fleetdm.env.FLEET_SERVER_ADDRESS | quote }}
+        - name: FLEET_LOGGING_JSON
+          value: {{ .Values.fleetdm.env.FLEET_LOGGING_JSON | quote }}
+        - name: FLEET_SERVER_TLS
+          value: "false"
+        ports:
+        - name: http
+          containerPort: {{ .Values.fleetdm.service.targetPort }}
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.fleetdm.resources | nindent 10 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+

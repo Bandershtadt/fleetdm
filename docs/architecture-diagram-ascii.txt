@@ -1,0 +1,156 @@
+================================================================================
+               COMPANY INC. - CLOUD ARCHITECTURE ON GCP
+================================================================================
+
+                           ┌─────────────────┐
+                           │  Internet/Users │
+                           └────────┬────────┘
+                                    │
+                           ┌────────▼────────┐
+                           │  Cloud Armor    │ ◄── WAF / DDoS Protection
+                           │   (WAF/DDoS)    │
+                           └────────┬────────┘
+                                    │
+                  ┌─────────────────┴──────────────────┐
+                  │                                    │
+         ┌────────▼────────┐              ┌───────────▼──────────┐
+         │ HTTPS Load      │              │   Cloud CDN          │
+         │ Balancer        │──────────────│   (Static Assets)    │
+         └────────┬────────┘              └──────────────────────┘
+                  │
+┌─────────────────┴──────────────────────────────────────────────────────┐
+│                                                                         │
+│         GCP PROJECT: company-inc-prod                                   │
+│ ┌─────────────────────────────────────────────────────────────────────┐│
+│ │  VPC: company-inc-prod-vpc (10.0.0.0/8)                             ││
+│ │                                                                      ││
+│ │  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓         ┌─────────────────┐│
+│ │  ┃  GKE Autopilot Cluster              ┃         │  MongoDB Atlas  ││
+│ │  ┃  (us-central1)                      ┃         │  Replica Set    ││
+│ │  ┃                                     ┃         │                 ││
+│ │  ┃  ┌────────────────────────────┐    ┃         │  ┌───────────┐  ││
+│ │  ┃  │ Zone A (us-central1-a)     │    ┃         │  │ Primary   │  ││
+│ │  ┃  │ ┌────────┐  ┌────────┐     │    ┃         │  │ (Zone A)  │  ││
+│ │  ┃  │ │Frontend│  │Backend │     │    ┃         │  └─────┬─────┘  ││
+│ │  ┃  │ │  Pod   │  │  Pod   │─────┼────┃─────────┼────────┘        ││
+│ │  ┃  │ └────────┘  └────────┘     │    ┃         │                 ││
+│ │  ┃  │ ┌────────┐  ┌────────┐     │    ┃         │  ┌───────────┐  ││
+│ │  ┃  │ │Frontend│  │Backend │     │    ┃         │  │Secondary  │  ││
+│ │  ┃  │ │  Pod   │  │  Pod   │─────┼────┃─────────┼──│ (Zone B)  │  ││
+│ │  ┃  │ └────────┘  └────────┘     │    ┃         │  └───────────┘  ││
+│ │  ┃  │ ┌────────┐                 │    ┃         │                 ││
+│ │  ┃  │ │ Redis  │                 │    ┃         │  ┌───────────┐  ││
+│ │  ┃  │ │  Pod   │                 │    ┃         │  │Secondary  │  ││
+│ │  ┃  │ └────────┘                 │    ┃         │  │ (Zone F)  │  ││
+│ │  ┃  └────────────────────────────┘    ┃         │  └───────────┘  ││
+│ │  ┃                                     ┃         │                 ││
+│ │  ┃  ┌────────────────────────────┐    ┃         │  ┌───────────┐  ││
+│ │  ┃  │ Zone B (us-central1-b)     │    ┃         │  │ Backups   │  ││
+│ │  ┃  │ ┌────────┐  ┌────────┐     │    ┃         │  │Cross-reg  │  ││
+│ │  ┃  │ │Frontend│  │Backend │─────┼────┃─────────┼──│  (daily)  │  ││
+│ │  ┃  │ │  Pod   │  │  Pod   │     │    ┃         │  └───────────┘  ││
+│ │  ┃  │ └────────┘  └────────┘     │    ┃         │                 ││
+│ │  ┃  │ ┌────────┐  ┌────────┐     │    ┃         └─────────────────┘│
+│ │  ┃  │ │Backend │  │Backend │     │    ┃                            ││
+│ │  ┃  │ │  Pod   │  │  Pod   │     │    ┃                            ││
+│ │  ┃  │ └────────┘  └────────┘     │    ┃                            ││
+│ │  ┃  └────────────────────────────┘    ┃                            ││
+│ │  ┃                                     ┃                            ││
+│ │  ┃  ┌────────────────────────────┐    ┃                            ││
+│ │  ┃  │ Zone F (us-central1-f)     │    ┃                            ││
+│ │  ┃  │ ┌────────┐  ┌────────┐     │    ┃                            ││
+│ │  ┃  │ │Backend │  │Backend │     │    ┃                            ││
+│ │  ┃  │ │  Pod   │  │  Pod   │     │    ┃                            ││
+│ │  ┃  │ └────────┘  └────────┘     │    ┃                            ││
+│ │  ┃  │                             │    ┃                            ││
+│ │  ┃  │ ┌────────────────────────┐ │    ┃                            ││
+│ │  ┃  │ │ Horizontal Pod         │ │    ┃                            ││
+│ │  ┃  │ │ Autoscaler (HPA)       │ │    ┃                            ││
+│ │  ┃  │ └────────────────────────┘ │    ┃                            ││
+│ │  ┃  └────────────────────────────┘    ┃                            ││
+│ │  ┃                                     ┃                            ││
+│ │  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛                            ││
+│ │                                                                      ││
+│ │  Network: Private Subnet (10.1.0.0/16)                              ││
+│ │  Cloud NAT: Outbound internet access for nodes                      ││
+│ │  VPC Peering: Connection to MongoDB Atlas                           ││
+│ └──────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│         GCP PROJECT: company-inc-shared (Shared Services)               │
+│                                                                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
+│  │  Artifact    │  │   Secret     │  │ Cloud Build  │  │  Cloud     │ │
+│  │  Registry    │  │  Manager     │  │   (CI/CD)    │  │ Monitoring │ │
+│  │ (Container   │  │ (Credentials)│  │              │  │ & Logging  │ │
+│  │   Images)    │  │              │  │              │  │            │ │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  GCP PROJECTS: company-inc-dev, company-inc-staging                     │
+│  (Similar architecture with smaller resource allocations)               │
+│                                                                         │
+│  - Development: M0 MongoDB, 1-node GKE cluster, preemptible nodes      │
+│  - Staging: M30 MongoDB, 2-zone GKE cluster, production-like config    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+TRAFFIC FLOW:
+================================================================================
+
+1. User Request → Cloud Armor (DDoS/WAF) → HTTPS Load Balancer
+2. Static Assets → Cloud CDN (cache) → User
+3. Dynamic Requests → GKE Ingress → Frontend Pods (React SPA)
+4. API Calls → Backend Pods (Flask) → MongoDB Atlas
+5. Session/Cache → Redis Pods
+6. Logs/Metrics → Cloud Monitoring & Logging
+
+================================================================================
+SECURITY FEATURES:
+================================================================================
+
+• Cloud Armor: WAF with OWASP Top 10 protection, rate limiting, DDoS mitigation
+• Private GKE Cluster: No public IPs on nodes, control plane access restricted
+• Workload Identity: Pods authenticate to GCP services without service keys
+• VPC Peering: Private connection to MongoDB Atlas (no internet exposure)
+• Encryption: TLS 1.3 in transit, AES-256 at rest (Cloud KMS)
+• IAM: Least privilege access, separate projects for environment isolation
+• Network Policies: Microsegmentation within Kubernetes cluster
+
+================================================================================
+SCALABILITY:
+================================================================================
+
+• GKE Autopilot: Auto-scales pods and nodes based on demand
+• Horizontal Pod Autoscaler: 3-100 replicas based on CPU/memory/custom metrics
+• MongoDB Atlas: Auto-scaling storage and compute, sharding for horizontal scale
+• Global Load Balancer: Anycast IP, routes to nearest edge location
+• Cloud CDN: 200+ edge locations worldwide for static asset caching
+
+================================================================================
+HIGH AVAILABILITY:
+================================================================================
+
+• Multi-zone GKE: 3 zones in us-central1 (a, b, f)
+• MongoDB Replica Set: 3 nodes across zones, automatic failover (<30s)
+• Pod Disruption Budgets: Ensure minimum replicas during maintenance
+• Health Checks: Liveness/readiness probes, automatic pod restart
+• Backups: Continuous backups with 7-day PITR, daily snapshots for 90 days
+
+================================================================================
+LEGEND:
+================================================================================
+
+┏━━━━━━━━┓  GKE Cluster (Kubernetes workloads)
+┃        ┃
+┗━━━━━━━━┛
+
+┌────────┐  GCP Managed Services
+│        │
+└────────┘
+
+═══════════ External/Internet traffic
+─────────── Internal/Private traffic
+

@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "fleetdm.fullname" . }}-db-init
+  labels:
+    {{- include "fleetdm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "fleetdm.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: db-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: db-init
+        image: "{{ .Values.fleetdm.image.repository }}:{{ .Values.fleetdm.image.tag }}"
+        env:
+        - name: FLEET_MYSQL_ADDRESS
+          value: "{{ include "fleetdm.mysql.fullname" . }}:3306"
+        - name: FLEET_MYSQL_DATABASE
+          value: {{ .Values.mysql.env.MYSQL_DATABASE | quote }}
+        - name: FLEET_MYSQL_USERNAME
+          value: {{ .Values.mysql.env.MYSQL_USER | quote }}
+        - name: FLEET_MYSQL_PASSWORD
+          value: {{ .Values.mysql.env.MYSQL_PASSWORD | quote }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Waiting for MySQL to be ready..."
+          until nc -z {{ include "fleetdm.mysql.fullname" . }} 3306; do
+            echo "MySQL not ready, waiting..."
+            sleep 5
+          done
+          echo "MySQL is ready, running fleet prepare db..."
+          /usr/bin/fleet prepare db
+          echo "Database preparation completed successfully!"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+

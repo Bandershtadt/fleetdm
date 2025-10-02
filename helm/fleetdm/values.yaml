@@ -1,0 +1,134 @@
+## FleetDM Configuration
+fleetdm:
+  image:
+    repository: fleetdm/fleet
+    tag: v4.55.0
+    pullPolicy: IfNotPresent
+  
+  replicaCount: 2
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  service:
+    type: NodePort
+    port: 8080
+    targetPort: 8080
+    nodePort: 30080
+  
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts:
+      - host: fleet.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  
+  # Environment variables for FleetDM
+  env:
+    FLEET_MYSQL_ADDRESS: "fleetdm-mysql:3306"
+    FLEET_MYSQL_DATABASE: "fleet"
+    FLEET_MYSQL_USERNAME: "fleet"
+    FLEET_REDIS_ADDRESS: "fleetdm-redis:6379"
+    FLEET_SERVER_ADDRESS: "0.0.0.0:8080"
+    FLEET_LOGGING_JSON: "true"
+
+## MySQL Configuration
+mysql:
+  enabled: true
+  image:
+    repository: mysql
+    tag: 8.0.36
+    pullPolicy: IfNotPresent
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  service:
+    type: ClusterIP
+    port: 3306
+  
+  persistence:
+    enabled: true
+    storageClass: standard
+    size: 10Gi
+  
+  env:
+    MYSQL_ROOT_PASSWORD: "fleetroot"
+    MYSQL_DATABASE: "fleet"
+    MYSQL_USER: "fleet"
+    MYSQL_PASSWORD: "fleetpassword"
+
+## Redis Configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7.2-alpine
+    pullPolicy: IfNotPresent
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  
+  service:
+    type: ClusterIP
+    port: 6379
+  
+  persistence:
+    enabled: true
+    storageClass: standard
+    size: 5Gi
+
+## Common Configuration
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+

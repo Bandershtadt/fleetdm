@@ -1,0 +1,12 @@
+apiVersion: v2
+name: fleetdm
+description: FleetDM deployment with MySQL and Redis
+type: application
+version: 0.1.0
+appVersion: "4.55.0"
+keywords:
+  - fleetdm
+  - osquery
+sources:
+  - https://github.com/fleetdm/fleet
+
