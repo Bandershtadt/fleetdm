@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "fleetdm.fullname" . }}-test-connection"
+  labels:
+    {{- include "fleetdm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-connection
+    image: busybox:1.35
+    command:
+    - /bin/sh
+    - -c
+    - |
+      echo "Testing FleetDM connectivity..."
+      
+      # Test FleetDM service
+      echo "Testing FleetDM service..."
+      wget -q --spider http://{{ include "fleetdm.fullname" . }}-fleetdm:{{ .Values.fleetdm.service.port }}/healthz
+      if [ $? -eq 0 ]; then
+        echo "✅ FleetDM service is accessible"
+      else
+        echo "❌ FleetDM service is not accessible"
+        exit 1
+      fi
+      
+      # Test MySQL service
+      echo "Testing MySQL service..."
+      nc -z {{ include "fleetdm.mysql.fullname" . }} {{ .Values.mysql.service.port }}
+      if [ $? -eq 0 ]; then
+        echo "✅ MySQL service is accessible"
+      else
+        echo "❌ MySQL service is not accessible"
+        exit 1
+      fi
+      
+      # Test Redis service
+      echo "Testing Redis service..."
+      nc -z {{ include "fleetdm.redis.fullname" . }} {{ .Values.redis.service.port }}
+      if [ $? -eq 0 ]; then
+        echo "✅ Redis service is accessible"
+      else
+        echo "❌ Redis service is not accessible"
+        exit 1
+      fi
+      
+      echo "🎉 All connectivity tests passed!"

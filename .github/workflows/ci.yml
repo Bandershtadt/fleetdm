@@ -1,0 +1,218 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  CHART_PATH: ./helm/fleetdm
+  CHART_NAME: fleetdm
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.12.0'
+
+      - name: Lint Helm chart
+        run: |
+          helm lint ${{ env.CHART_PATH }}
+          helm template ${{ env.CHART_PATH }} --dry-run
+
+      - name: Validate chart dependencies
+        run: |
+          helm dependency update ${{ env.CHART_PATH }}
+          helm dependency list ${{ env.CHART_PATH }}
+
+  test:
+    name: Test Deployment
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
+          # Install Kind
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          
+          # Install Helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Create Kind cluster
+        run: |
+          kind create cluster --name fleetdm-test --config ./config/kind-config.yaml
+          kubectl cluster-info --context kind-fleetdm-test
+
+      - name: Install Helm chart
+        run: |
+          helm upgrade --install fleetdm-test ${{ env.CHART_PATH }} \
+            --namespace fleetdm \
+            --create-namespace \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          # Wait for all pods to be ready
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=fleetdm -n fleetdm --timeout=300s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=mysql -n fleetdm --timeout=300s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=redis -n fleetdm --timeout=300s
+          
+          # Check pod status
+          kubectl get pods -n fleetdm
+          
+          # Verify services
+          kubectl get svc -n fleetdm
+          
+          # Check database initialization job
+          kubectl get jobs -n fleetdm
+          
+          # Test FleetDM health endpoint
+          kubectl port-forward -n fleetdm svc/fleetdm-test-fleetdm 8080:8080 &
+          sleep 10
+          curl -f http://localhost:8080/healthz || exit 1
+
+      - name: Run integration tests
+        run: |
+          # Test MySQL connectivity
+          kubectl exec -n fleetdm deployment/fleetdm-test-mysql -- mysqladmin ping
+          
+          # Test Redis connectivity
+          kubectl exec -n fleetdm deployment/fleetdm-test-redis -- redis-cli ping
+          
+          # Check FleetDM logs for errors
+          kubectl logs -n fleetdm -l app.kubernetes.io/component=fleetdm --tail=50
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kind delete cluster --name fleetdm-test
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.12.0'
+
+      - name: Install kube-score
+        run: |
+          wget https://github.com/zegl/kube-score/releases/download/v1.16.1/kube-score_1.16.1_linux_amd64.tar.gz
+          tar -xzf kube-score_1.16.1_linux_amd64.tar.gz
+          sudo mv kube-score /usr/local/bin/
+
+      - name: Run kube-score
+        run: |
+          helm template ${{ env.CHART_PATH }} | kube-score score -
+
+      - name: Install kubeval
+        run: |
+          wget https://github.com/instrumenta/kubeval/releases/download/v0.16.1/kubeval-linux-amd64.tar.gz
+          tar -xzf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin/
+
+      - name: Validate Kubernetes manifests
+        run: |
+          helm template ${{ env.CHART_PATH }} | kubeval --strict
+
+  package:
+    name: Package Helm Chart
+    runs-on: ubuntu-latest
+    needs: [lint, test, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.12.0'
+
+      - name: Package Helm chart
+        run: |
+          mkdir -p dist
+          helm package ${{ env.CHART_PATH }} -d ./dist
+          ls -la dist/
+
+      - name: Upload chart artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: helm-chart
+          path: dist/
+          retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [lint, test, security-scan, package]
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.12.0'
+
+      - name: Package Helm chart
+        run: |
+          mkdir -p dist
+          helm package ${{ env.CHART_PATH }} -d ./dist
+          ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.tgz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [lint, test, security-scan]
+    if: always()
+    steps:
+      - name: Notify on success
+        if: needs.lint.result == 'success' && needs.test.result == 'success' && needs.security-scan.result == 'success'
+        run: |
+          echo "✅ All CI checks passed successfully!"
+          echo "Chart is ready for deployment"
+
+      - name: Notify on failure
+        if: needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.security-scan.result == 'failure'
+        run: |
+          echo "❌ CI checks failed"
+          echo "Please check the logs and fix the issues"
+          exit 1

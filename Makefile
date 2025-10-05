@@ -119,3 +119,17 @@ port-forward: ## Port-forward to FleetDM UI
 	@echo "Forwarding port 8080 to FleetDM service..."
 	@kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-fleetdm 8080:8080
 
+test: ## Run Helm tests
+	@echo "Running Helm tests..."
+	@helm test $(RELEASE_NAME) -n $(NAMESPACE) --timeout 5m
+
+test-connection: ## Test service connectivity
+	@echo "Testing service connectivity..."
+	@kubectl run test-connection --image=busybox:1.35 --rm -i --restart=Never -- \
+		sh -c "nc -z $(RELEASE_NAME)-fleetdm 8080 && nc -z $(RELEASE_NAME)-mysql 3306 && nc -z $(RELEASE_NAME)-redis 6379 && echo 'All services accessible'"
+
+test-database: ## Test database connectivity
+	@echo "Testing database connectivity..."
+	@kubectl run test-database --image=mysql:8.0.36 --rm -i --restart=Never --env="MYSQL_PWD=fleetpassword" -- \
+		mysql -h $(RELEASE_NAME)-mysql -u fleet -e "SELECT 1" fleet
+
