@@ -22,7 +22,7 @@ spec:
       
       # Test FleetDM service
       echo "Testing FleetDM service..."
-      wget -q --spider http://{{ include "fleetdm.fullname" . }}-fleetdm:{{ .Values.fleetdm.service.port }}/healthz
+      wget -q --spider http://{{ include "fleetdm.fullname" . }}:{{ .Values.fleetdm.service.port }}/healthz
       if [ $? -eq 0 ]; then
         echo "✅ FleetDM service is accessible"
       else
