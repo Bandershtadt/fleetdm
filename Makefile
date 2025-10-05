@@ -47,9 +47,9 @@ install: ## Install the FleetDM Helm chart
 	@echo ""
 	@echo "To access FleetDM UI:"
 	@if [ "$(CLUSTER_TYPE)" = "kind" ]; then \
-		echo "  kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-fleetdm 8080:8080"; \
+		echo "  kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8080:8080"; \
 	else \
-		echo "  minikube service $(RELEASE_NAME)-fleetdm -n $(NAMESPACE)"; \
+		echo "  minikube service $(RELEASE_NAME) -n $(NAMESPACE)"; \
 	fi
 	@echo ""
 	@echo "Then visit: http://localhost:8080"
@@ -80,7 +80,7 @@ verify: ## Verify that all components are running
 	@kubectl get jobs -n $(NAMESPACE)
 	@echo ""
 	@echo "=== Deployment Status ==="
-	@kubectl rollout status deployment/$(RELEASE_NAME)-fleetdm -n $(NAMESPACE) --timeout=30s || true
+	@kubectl rollout status deployment/$(RELEASE_NAME) -n $(NAMESPACE) --timeout=30s || true
 	@kubectl rollout status deployment/$(RELEASE_NAME)-mysql -n $(NAMESPACE) --timeout=30s || true
 	@kubectl rollout status deployment/$(RELEASE_NAME)-redis -n $(NAMESPACE) --timeout=30s || true
 
@@ -117,7 +117,7 @@ logs-db-init: ## Show database init job logs
 
 port-forward: ## Port-forward to FleetDM UI
 	@echo "Forwarding port 8080 to FleetDM service..."
-	@kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME)-fleetdm 8080:8080
+	@kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8080:8080
 
 test: ## Run Helm tests
 	@echo "Running Helm tests..."
@@ -126,7 +126,7 @@ test: ## Run Helm tests
 test-connection: ## Test service connectivity
 	@echo "Testing service connectivity..."
 	@kubectl run test-connection --image=busybox:1.35 --rm -i --restart=Never -- \
-		sh -c "nc -z $(RELEASE_NAME)-fleetdm 8080 && nc -z $(RELEASE_NAME)-mysql 3306 && nc -z $(RELEASE_NAME)-redis 6379 && echo 'All services accessible'"
+		sh -c "nc -z $(RELEASE_NAME) 8080 && nc -z $(RELEASE_NAME)-mysql 3306 && nc -z $(RELEASE_NAME)-redis 6379 && echo 'All services accessible'"
 
 test-database: ## Test database connectivity
 	@echo "Testing database connectivity..."
