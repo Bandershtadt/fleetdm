@@ -1,15 +1,14 @@
 {{- if .Values.mysql.enabled -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "fleetdm.mysql.fullname" . }}
   labels:
     {{- include "fleetdm.labels" . | nindent 4 }}
     app.kubernetes.io/component: mysql
 spec:
+  serviceName: {{ include "fleetdm.mysql.fullname" . }}
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "fleetdm.selectorLabels" . | nindent 6 }}
@@ -72,13 +71,26 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /var/lib/mysql
+  {{- if .Values.mysql.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        {{- include "fleetdm.labels" . | nindent 8 }}
+        app.kubernetes.io/component: mysql
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      {{- if .Values.mysql.persistence.storageClass }}
+      storageClassName: {{ .Values.mysql.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.mysql.persistence.size }}
+  {{- else }}
       volumes:
       - name: data
-        {{- if .Values.mysql.persistence.enabled }}
-        persistentVolumeClaim:
-          claimName: {{ include "fleetdm.mysql.fullname" . }}
-        {{- else }}
         emptyDir: {}
-        {{- end }}
+  {{- end }}
 {{- end }}
 

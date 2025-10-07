@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: mysql
 spec:
   type: {{ .Values.mysql.service.type }}
+  clusterIP: None  # Headless service for StatefulSet
   ports:
     - port: {{ .Values.mysql.service.port }}
       targetPort: mysql
