@@ -107,6 +107,20 @@ For Kind with port mapping:
 open http://localhost:8080
 ```
 
+### Agents Reachability
+- Kind: The Kind cluster is pre-configured to map the FleetDM Service NodePort 30080 to host port 8080 (see config/kind-config.yaml). Agents outside the cluster can reach FleetDM at http://localhost:8080.
+- Minikube: Either run `minikube service fleetdm -n fleetdm` to get a URL, or set `--set fleetdm.service.type=LoadBalancer` and run `minikube tunnel`.
+
+Set the external URL that Fleet advertises to agents (optional but recommended):
+```bash
+helm upgrade --install fleetdm helm/fleetdm -n fleetdm --create-namespace \
+  --set fleetdm.env.FLEET_SERVER_URL=http://localhost:8080
+```
+Verify external connectivity from your host:
+```bash
+curl -sf http://localhost:8080/healthz && echo "OK"
+```
+
 ## Configuration
 
 Edit `helm/fleetdm/values.yaml` to customize:

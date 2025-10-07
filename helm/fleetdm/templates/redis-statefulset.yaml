@@ -1,15 +1,14 @@
 {{- if .Values.redis.enabled -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "fleetdm.redis.fullname" . }}
   labels:
     {{- include "fleetdm.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
 spec:
+  serviceName: {{ include "fleetdm.redis.fullname" . }}
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "fleetdm.selectorLabels" . | nindent 6 }}
@@ -45,13 +44,26 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
+  {{- if .Values.redis.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        {{- include "fleetdm.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      {{- if .Values.redis.persistence.storageClass }}
+      storageClassName: {{ .Values.redis.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.redis.persistence.size }}
+  {{- else }}
       volumes:
       - name: data
-        {{- if .Values.redis.persistence.enabled }}
-        persistentVolumeClaim:
-          claimName: {{ include "fleetdm.redis.fullname" . }}
-        {{- else }}
         emptyDir: {}
-        {{- end }}
+  {{- end }}
 {{- end }}
 
