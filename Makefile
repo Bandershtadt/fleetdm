@@ -1,4 +1,4 @@
-.PHONY: help cluster cluster-kind cluster-minikube install uninstall verify clean package lint
+.PHONY: help cluster cluster-kind cluster-minikube install uninstall verify clean package lint init-db
 
 # Default cluster type (kind or minikube)
 CLUSTER_TYPE ?= kind
@@ -33,7 +33,7 @@ cluster-minikube: ## Create a Minikube cluster
 		kubectl config use-context $(CLUSTER_NAME); \
 	fi
 
-install: ## Install the FleetDM Helm chart
+install: ## Install the FleetDM Helm chart with automatic database initialization
 	@echo "Creating namespace $(NAMESPACE)..."
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
 	@echo "Installing FleetDM Helm chart..."
@@ -41,9 +41,16 @@ install: ## Install the FleetDM Helm chart
 		--namespace $(NAMESPACE) \
 		--wait \
 		--timeout 10m \
-		--create-namespace
+		--create-namespace || true
 	@echo ""
-	@echo "Installation complete!"
+	@echo "Initializing database..."
+	@$(MAKE) init-db
+	@echo ""
+	@echo "Restarting FleetDM pods..."
+	@kubectl rollout restart deployment -l app.kubernetes.io/name=fleetdm -n $(NAMESPACE)
+	@kubectl rollout status deployment -l app.kubernetes.io/name=fleetdm -n $(NAMESPACE) --timeout=5m
+	@echo ""
+	@echo "✅ Installation complete!"
 	@echo ""
 	@echo "To access FleetDM UI:"
 	@if [ "$(CLUSTER_TYPE)" = "kind" ]; then \
@@ -132,4 +139,19 @@ test-database: ## Test database connectivity
 	@echo "Testing database connectivity..."
 	@kubectl run test-database --image=mysql:8.0.36 --rm -i --restart=Never --env="MYSQL_PWD=fleetpassword" -- \
 		mysql -h $(RELEASE_NAME)-mysql -u fleet -e "SELECT 1" fleet
+
+init-db: ## Initialize FleetDM database (runs automatically during install)
+	@echo "Waiting for MySQL to be ready..."
+	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=mysql -n $(NAMESPACE) --timeout=300s
+	@echo "Running database migrations..."
+	@kubectl run $(RELEASE_NAME)-db-init \
+		--image=fleetdm/fleet:v4.55.0 \
+		--rm -i --restart=Never \
+		-n $(NAMESPACE) \
+		--env="FLEET_MYSQL_ADDRESS=$(RELEASE_NAME)-mysql-0.$(RELEASE_NAME)-mysql:3306" \
+		--env="FLEET_MYSQL_DATABASE=fleet" \
+		--env="FLEET_MYSQL_USERNAME=fleet" \
+		--env="FLEET_MYSQL_PASSWORD=fleetpassword" \
+		-- /usr/bin/fleet prepare db
+	@echo "✅ Database initialized successfully!"
 
