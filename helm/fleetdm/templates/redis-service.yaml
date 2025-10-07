@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: redis
 spec:
   type: {{ .Values.redis.service.type }}
+  clusterIP: None  # Headless service for StatefulSet
   ports:
     - port: {{ .Values.redis.service.port }}
       targetPort: redis

@@ -7,8 +7,8 @@ metadata:
     app.kubernetes.io/component: db-init
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 5
@@ -19,6 +19,19 @@ spec:
         app.kubernetes.io/component: db-init
     spec:
       restartPolicy: OnFailure
+      initContainers:
+      - name: wait-mysql
+        image: "mysql:8.0.36"
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for MySQL to be ready..."
+          until mysqladmin ping -h {{ include "fleetdm.mysql.fullname" . }} -u {{ .Values.mysql.env.MYSQL_USER }} -p{{ .Values.mysql.env.MYSQL_PASSWORD }} --silent; do
+            echo "MySQL not ready, waiting..."
+            sleep 5
+          done
+          echo "MySQL is ready!"
       containers:
       - name: db-init
         image: "{{ .Values.fleetdm.image.repository }}:{{ .Values.fleetdm.image.tag }}"
@@ -32,17 +45,9 @@ spec:
         - name: FLEET_MYSQL_PASSWORD
           value: {{ .Values.mysql.env.MYSQL_PASSWORD | quote }}
         command:
-        - /bin/sh
-        - -c
-        - |
-          echo "Waiting for MySQL to be ready..."
-          until nc -z {{ include "fleetdm.mysql.fullname" . }} 3306; do
-            echo "MySQL not ready, waiting..."
-            sleep 5
-          done
-          echo "MySQL is ready, running fleet prepare db..."
-          /usr/bin/fleet prepare db
-          echo "Database preparation completed successfully!"
+        - /usr/bin/fleet
+        - prepare
+        - db
         resources:
           limits:
             cpu: 500m

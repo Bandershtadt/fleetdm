@@ -107,6 +107,20 @@ For Kind with port mapping:
 open http://localhost:8080
 ```
 
+### Agents Reachability
+- Kind: The Kind cluster is pre-configured to map the FleetDM Service NodePort 30080 to host port 8080 (see config/kind-config.yaml). Agents outside the cluster can reach FleetDM at http://localhost:8080.
+- Minikube: Either run `minikube service fleetdm -n fleetdm` to get a URL, or set `--set fleetdm.service.type=LoadBalancer` and run `minikube tunnel`.
+
+Set the external URL that Fleet advertises to agents (optional but recommended):
+```bash
+helm upgrade --install fleetdm helm/fleetdm -n fleetdm --create-namespace \
+  --set fleetdm.env.FLEET_SERVER_URL=http://localhost:8080
+```
+Verify external connectivity from your host:
+```bash
+curl -sf http://localhost:8080/healthz && echo "OK"
+```
+
 ## Configuration
 
 Edit `helm/fleetdm/values.yaml` to customize:
@@ -148,6 +162,9 @@ make install      - Install helm chart
 make uninstall    - Remove all resources
 make verify       - Check deployment status
 make port-forward - Forward port to FleetDM UI
+make test         - Run Helm tests
+make test-connection - Test service connectivity
+make test-database - Test database connectivity
 make clean        - Delete cluster
 make logs-fleetdm - View FleetDM logs
 make logs-mysql   - View MySQL logs
@@ -203,12 +220,47 @@ The deployment includes:
 
 All components use persistent storage and have health checks configured.
 
+## CI/CD Pipeline
+
+This project includes a comprehensive GitHub Actions CI/CD pipeline that:
+
+### Automated Testing
+- **Lint**: Validates Helm chart syntax and templates
+- **Test**: Deploys to Kind cluster and runs integration tests
+- **Security**: Scans for security issues with kube-score and kubeval
+- **Connectivity**: Tests all service connections
+- **Database**: Verifies database initialization
+
+### Release Process
+- **Package**: Creates Helm chart packages
+- **Release**: Automatically creates GitHub releases with chart artifacts
+- **Artifacts**: Uploads packaged charts for distribution
+
+### Pipeline Triggers
+- **Push to main/develop**: Runs full test suite
+- **Pull Requests**: Runs linting and testing
+- **Releases**: Creates and publishes chart packages
+
+### Manual Testing
+Run Helm tests locally:
+```bash
+# Install the chart
+make install
+
+# Run Helm tests
+helm test fleetdm -n fleetdm
+
+# Cleanup
+make uninstall
+```
+
 ## Notes
 
 - Default passwords are in `values.yaml` - change for production
 - TLS is disabled by default for local dev
 - Database is auto-initialized on first install
 - For production, enable ingress and proper TLS
+- CI pipeline ensures chart quality and security
 
 ## License
 
