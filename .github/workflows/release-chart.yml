@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+      - develop
+      - 'feature/**'
+      - 'ci/**'
+    paths:
+      - 'helm/fleetdm/**'
+  pull_request:
     paths:
       - 'helm/fleetdm/**'
   workflow_dispatch:
@@ -29,8 +35,13 @@ jobs:
 
       - name: Test install
         run: |
-          helm install fleetdm helm/fleetdm --wait --timeout 5m
+          helm install fleetdm helm/fleetdm --wait --timeout 5m \
+            --set mysql.persistence.enabled=false \
+            --set redis.persistence.enabled=false
           kubectl get pods
+
+      - name: Run Helm tests
+        run: helm test fleetdm --timeout 5m
 
       - name: Test uninstall
         run: helm uninstall fleetdm
