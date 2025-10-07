@@ -3,7 +3,7 @@ fleetdm:
   image:
     repository: fleetdm/fleet
     tag: v4.55.0
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   
   replicaCount: 2
   
@@ -11,9 +11,11 @@ fleetdm:
     limits:
       cpu: 1000m
       memory: 1Gi
+      ephemeral-storage: 1Gi
     requests:
       cpu: 500m
       memory: 512Mi
+      ephemeral-storage: 100Mi
   
   service:
     type: NodePort
@@ -39,6 +41,7 @@ fleetdm:
     FLEET_MYSQL_USERNAME: "fleet"
     FLEET_REDIS_ADDRESS: "fleetdm-redis:6379"
     FLEET_SERVER_ADDRESS: "0.0.0.0:8080"
+    FLEET_SERVER_URL: "http://localhost:8080"
     FLEET_LOGGING_JSON: "true"
 
 ## MySQL Configuration
