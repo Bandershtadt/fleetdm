@@ -53,6 +53,8 @@ spec:
           value: "{{ include "fleetdm.redis.fullname" . }}:{{ .Values.redis.service.port }}"
         - name: FLEET_SERVER_ADDRESS
           value: {{ .Values.fleetdm.env.FLEET_SERVER_ADDRESS | quote }}
+        - name: FLEET_SERVER_URL
+          value: {{ .Values.fleetdm.env.FLEET_SERVER_URL | quote }}
         - name: FLEET_LOGGING_JSON
           value: {{ .Values.fleetdm.env.FLEET_LOGGING_JSON | quote }}
         - name: FLEET_SERVER_TLS
