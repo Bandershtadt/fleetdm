@@ -73,12 +73,28 @@ jobs:
             --wait \
             --timeout 10m
 
+      - name: Initialize database
+        run: |
+          # Wait for MySQL to be ready
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=mysql -n fleetdm --timeout=300s
+          
+          # Run database initialization manually (since Helm hooks may not run in CI)
+          kubectl run fleetdm-db-init --image=fleetdm/fleet:v4.55.0 --rm -i --restart=Never -n fleetdm \
+            --env="FLEET_MYSQL_ADDRESS=fleetdm-test-mysql-0.fleetdm-test-mysql:3306" \
+            --env="FLEET_MYSQL_DATABASE=fleet" \
+            --env="FLEET_MYSQL_USERNAME=fleet" \
+            --env="FLEET_MYSQL_PASSWORD=fleetpassword" \
+            -- /usr/bin/fleet prepare db
+      
       - name: Verify deployment
         run: |
           # Wait for all pods to be ready
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=fleetdm -n fleetdm --timeout=300s
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=mysql -n fleetdm --timeout=300s
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=redis -n fleetdm --timeout=300s
+          
+          # Restart FleetDM deployment after DB init
+          kubectl rollout restart deployment -l app.kubernetes.io/component=fleetdm -n fleetdm
+          kubectl rollout status deployment -l app.kubernetes.io/component=fleetdm -n fleetdm --timeout=300s
           
           # Check pod status
           kubectl get pods -n fleetdm
@@ -86,24 +102,56 @@ jobs:
           # Verify services
           kubectl get svc -n fleetdm
           
-          # Check database initialization job
-          kubectl get jobs -n fleetdm
+          # Verify StatefulSets
+          kubectl get statefulsets -n fleetdm
+          
+          # Verify PVCs
+          kubectl get pvc -n fleetdm
           
           # Test FleetDM health endpoint
-          kubectl port-forward -n fleetdm svc/fleetdm-test-fleetdm 8080:8080 &
+          kubectl port-forward -n fleetdm svc/fleetdm-test 8080:8080 &
           sleep 10
           curl -f http://localhost:8080/healthz || exit 1
 
       - name: Run integration tests
         run: |
-          # Test MySQL connectivity
-          kubectl exec -n fleetdm deployment/fleetdm-test-mysql -- mysqladmin ping
+          # Test MySQL connectivity (StatefulSet)
+          kubectl exec -n fleetdm fleetdm-test-mysql-0 -- mysqladmin ping -u root -pfleetroot
           
-          # Test Redis connectivity
-          kubectl exec -n fleetdm deployment/fleetdm-test-redis -- redis-cli ping
+          # Test Redis connectivity (StatefulSet)
+          kubectl exec -n fleetdm fleetdm-test-redis-0 -- redis-cli ping
           
           # Check FleetDM logs for errors
           kubectl logs -n fleetdm -l app.kubernetes.io/component=fleetdm --tail=50
+      
+      - name: Test StatefulSet data persistence
+        run: |
+          echo "Testing StatefulSet data persistence..."
+          
+          # Write test data to MySQL
+          kubectl run test-write --image=mysql:8.0.36 --rm -i --restart=Never -n fleetdm \
+            --env="MYSQL_PWD=fleetpassword" \
+            -- mysql -h fleetdm-test-mysql-0.fleetdm-test-mysql -u fleet fleet \
+            -e "CREATE TABLE IF NOT EXISTS ci_test (id INT PRIMARY KEY, value VARCHAR(255)); INSERT INTO ci_test VALUES (1, 'StatefulSet CI Test') ON DUPLICATE KEY UPDATE value='StatefulSet CI Test';"
+          
+          # Delete MySQL pod to simulate failure
+          kubectl delete pod fleetdm-test-mysql-0 -n fleetdm
+          
+          # Wait for StatefulSet to recreate the pod
+          kubectl wait --for=condition=ready pod/fleetdm-test-mysql-0 -n fleetdm --timeout=300s
+          
+          # Verify data persisted
+          DATA=$(kubectl run test-read --image=mysql:8.0.36 --rm -i --restart=Never -n fleetdm \
+            --env="MYSQL_PWD=fleetpassword" \
+            -- mysql -h fleetdm-test-mysql-0.fleetdm-test-mysql -u fleet fleet -sN \
+            -e "SELECT value FROM ci_test WHERE id=1;")
+          
+          if [ "$DATA" = "StatefulSet CI Test" ]; then
+            echo "✅ Data persistence test PASSED - StatefulSet maintained data after pod deletion"
+          else
+            echo "❌ Data persistence test FAILED - Data was lost"
+            exit 1
+          fi
 
       - name: Cleanup
         if: always()
