@@ -2,55 +2,56 @@ name: Lint
 
 on:
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 jobs:
   yaml-lint:
     name: YAML Lint
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-    - name: Install yamllint
-      run: pip install yamllint
+      - name: Install yamllint
+        run: pip install yamllint
 
-    - name: Run yamllint
-      run: yamllint -c .yamllint . || true
+      - name: Run yamllint
+        run: yamllint -c .yamllint . || true
 
   helm-lint:
     name: Helm Lint
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-    - name: Install Helm
-      uses: azure/setup-helm@v4
-      with:
-        version: "3.13.0"
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.13.0"
 
-    - name: Add Bitnami repository
-      run: helm repo add bitnami https://charts.bitnami.com/bitnami
+      - name: Add Bitnami repository
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
 
-    - name: Update dependencies
-      run: helm dependency update ./fleet
+      - name: Update dependencies
+        run: helm dependency update ./fleet
 
-    - name: Lint Helm chart
-      run: helm lint ./fleet
+      - name: Lint Helm chart
+        run: helm lint ./fleet
 
   markdown-check:
     name: Markdown Check
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-    - name: Check Markdown files exist
-      run: |
-        test -f README.md && echo "✅ README.md exists"
-        test -f SUBMISSION.md && echo "✅ SUBMISSION.md exists"
-        test -f PROJECT_SUMMARY.md && echo "✅ PROJECT_SUMMARY.md exists"
-        test -f docs/architecture.md && echo "✅ Architecture doc exists"
-        test -f fleet/README.md && echo "✅ Chart README exists"
-        echo "✅ All documentation files present"
+      - name: Check Markdown files exist
+        run: |
+          test -f README.md && echo "✅ README.md exists"
+          test -f SUBMISSION.md && echo "✅ SUBMISSION.md exists"
+          test -f PROJECT_SUMMARY.md && echo "✅ PROJECT_SUMMARY.md exists"
+          test -f docs/architecture.md && echo "✅ Architecture doc exists"
+          test -f fleet/README.md && echo "✅ Chart README exists"
+          echo "✅ All documentation files present"
+

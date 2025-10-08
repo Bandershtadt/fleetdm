@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   HELM_VERSION: "3.13.0"
@@ -14,82 +14,79 @@ jobs:
     name: Lint Helm Chart
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-    - name: Install Helm
-      uses: azure/setup-helm@v4
-      with:
-        version: ${{ env.HELM_VERSION }}
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
 
-    - name: Add Bitnami repository
-      run: helm repo add bitnami https://charts.bitnami.com/bitnami
+      - name: Add Bitnami repository
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
 
-    - name: Update dependencies
-      run: helm dependency update ./fleet
+      - name: Update dependencies
+        run: helm dependency update ./fleet
 
-    - name: Lint Helm chart
-      run: helm lint ./fleet
+      - name: Lint Helm chart
+        run: helm lint ./fleet
 
-    - name: Template chart
-      run: helm template fleetdm ./fleet --debug > /dev/null
+      - name: Template chart
+        run: |
+          helm template fleetdm ./fleet --debug > /dev/null
 
-    - name: Validate dependencies
-      run: helm dependency list ./fleet
+      - name: Validate dependencies
+        run: helm dependency list ./fleet
 
   security:
     name: Security Scan
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'config'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        severity: 'CRITICAL,HIGH'
-        exit-code: '0'  # Don't fail on vulnerabilities
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
 
-    - name: Upload Trivy results
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
 
   validate:
     name: Validate Configuration
     runs-on: ubuntu-latest
     needs: lint
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-    - name: Validate YAML files
-      run: |
-        # Install yamllint
-        pip install yamllint
-        
-        # Run yamllint (allow warnings)
-        yamllint -c .yamllint . || true
+      - name: Validate YAML files
+        run: |
+          pip install yamllint
+          yamllint -c .yamllint . || true
 
-    - name: Check Makefile targets
-      run: |
-        make help
+      - name: Check Makefile targets
+        run: make help
 
-    - name: Validate documentation exists
-      run: |
-        test -f README.md
-        test -f SUBMISSION.md
-        test -f PROJECT_SUMMARY.md
-        test -f docs/architecture.md
-        test -f fleet/Chart.yaml
-        test -f fleet/values.yaml
-        test -f Makefile
-        echo "✅ All required documentation files exist"
+      - name: Validate documentation exists
+        run: |
+          test -f README.md
+          test -f SUBMISSION.md
+          test -f PROJECT_SUMMARY.md
+          test -f docs/architecture.md
+          test -f fleet/Chart.yaml
+          test -f fleet/values.yaml
+          test -f Makefile
+          echo "✅ All required documentation files exist"
 
   release:
     name: Package Helm Chart
@@ -97,30 +94,31 @@ jobs:
     needs: [lint, validate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-    - name: Install Helm
-      uses: azure/setup-helm@v4
-      with:
-        version: ${{ env.HELM_VERSION }}
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
 
-    - name: Add Bitnami repository
-      run: helm repo add bitnami https://charts.bitnami.com/bitnami
+      - name: Add Bitnami repository
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
 
-    - name: Update dependencies
-      run: helm dependency update ./fleet
+      - name: Update dependencies
+        run: helm dependency update ./fleet
 
-    - name: Package Helm Chart
-      run: |
-        helm package ./fleet
-        echo "✅ Helm chart packaged successfully"
+      - name: Package Helm Chart
+        run: |
+          helm package ./fleet
+          echo "✅ Helm chart packaged successfully"
 
-    - name: Upload chart artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: helm-chart
-        path: fleet-*.tgz
-        retention-days: 90
+      - name: Upload chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: fleet-*.tgz
+          retention-days: 90
+
