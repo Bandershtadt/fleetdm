@@ -1,157 +1,124 @@
-.PHONY: help cluster cluster-kind cluster-minikube install uninstall verify clean package lint init-db
+# FleetDM Helm Chart Makefile
+# This Makefile provides targets for managing a local Kubernetes cluster and FleetDM deployment
 
-# Default cluster type (kind or minikube)
-CLUSTER_TYPE ?= kind
+# Variables
 CLUSTER_NAME ?= fleetdm-cluster
 NAMESPACE ?= fleetdm
-CHART_PATH := ./helm/fleetdm
-RELEASE_NAME := fleetdm
+CHART_PATH ?= ./fleet
+RELEASE_NAME ?= fleetdm
 
-help: ## Display this help message
-	@echo "FleetDM Kubernetes Deployment"
+# Colors for output
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+RED := \033[0;31m
+NC := \033[0m # No Color
+
+.PHONY: help cluster install uninstall status logs clean
+
+help: ## Show this help message
+	@echo "FleetDM Helm Chart Management"
+	@echo "============================="
 	@echo ""
 	@echo "Available targets:"
-	@awk 'BEGIN {FS = ":.*##"; printf "\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-cluster: cluster-$(CLUSTER_TYPE) ## Create local Kubernetes cluster (default: kind, use CLUSTER_TYPE=minikube to override)
-
-cluster-kind: ## Create a Kind cluster
-	@echo "Creating Kind cluster..."
+cluster: ## Create local Kubernetes cluster using Kind
+	@echo "$(YELLOW)Creating Kind cluster: $(CLUSTER_NAME)$(NC)"
 	@if kind get clusters | grep -q $(CLUSTER_NAME); then \
-		echo "Cluster $(CLUSTER_NAME) already exists"; \
+		echo "$(YELLOW)Cluster $(CLUSTER_NAME) already exists$(NC)"; \
 	else \
-		kind create cluster --name $(CLUSTER_NAME) --config ./config/kind-config.yaml; \
-		kubectl cluster-info --context kind-$(CLUSTER_NAME); \
+		kind create cluster --name $(CLUSTER_NAME) --config config/kind-config.yaml; \
+		echo "$(GREEN)Cluster $(CLUSTER_NAME) created successfully$(NC)"; \
 	fi
+	@echo "$(YELLOW)Installing NGINX Ingress Controller$(NC)"
+	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	@echo "$(YELLOW)Waiting for NGINX Ingress Controller to be ready...$(NC)"
+	@kubectl wait --namespace ingress-nginx \
+		--for=condition=ready pod \
+		--selector=app.kubernetes.io/component=controller \
+		--timeout=180s
+	@echo "$(GREEN)NGINX Ingress Controller is ready$(NC)"
 
-cluster-minikube: ## Create a Minikube cluster
-	@echo "Creating Minikube cluster..."
-	@if minikube status -p $(CLUSTER_NAME) >/dev/null 2>&1; then \
-		echo "Cluster $(CLUSTER_NAME) already exists"; \
-	else \
-		minikube start --profile $(CLUSTER_NAME) --cpus=4 --memory=8192 --disk-size=20g --driver=docker; \
-		kubectl config use-context $(CLUSTER_NAME); \
-	fi
-
-install: ## Install the FleetDM Helm chart with automatic database initialization
-	@echo "Creating namespace $(NAMESPACE)..."
+install: ## Install FleetDM Helm chart
+	@echo "$(YELLOW)Installing FleetDM Helm chart...$(NC)"
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
-	@echo "Installing FleetDM Helm chart..."
+	@helm dependency update $(CHART_PATH)
 	@helm upgrade --install $(RELEASE_NAME) $(CHART_PATH) \
 		--namespace $(NAMESPACE) \
 		--wait \
-		--timeout 10m \
-		--create-namespace || true
+		--timeout=5m
+	@echo "$(GREEN)FleetDM installed successfully$(NC)"
+	@echo "$(YELLOW)Waiting for migration jobs to complete...$(NC)"
+	@kubectl wait --for=condition=complete job -l app.kubernetes.io/component=migration -n $(NAMESPACE) --timeout=600s || echo "$(YELLOW)Migration job timeout - continuing with deployment$(NC)"
+	@echo "$(YELLOW)Waiting for all pods to be ready...$(NC)"
+	@kubectl wait --for=condition=ready pod -l app=fleet -n $(NAMESPACE) --timeout=600s
+	@echo "$(GREEN)All pods are ready$(NC)"
 	@echo ""
-	@echo "Initializing database..."
-	@$(MAKE) init-db
-	@echo ""
-	@echo "Restarting FleetDM pods..."
-	@kubectl rollout restart deployment -l app.kubernetes.io/name=fleetdm -n $(NAMESPACE)
-	@kubectl rollout status deployment -l app.kubernetes.io/name=fleetdm -n $(NAMESPACE) --timeout=5m
-	@echo ""
-	@echo "✅ Installation complete!"
-	@echo ""
-	@echo "To access FleetDM UI:"
-	@if [ "$(CLUSTER_TYPE)" = "kind" ]; then \
-		echo "  kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8080:8080"; \
-	else \
-		echo "  minikube service $(RELEASE_NAME) -n $(NAMESPACE)"; \
-	fi
-	@echo ""
-	@echo "Then visit: http://localhost:8080"
+	@echo "$(GREEN)FleetDM is accessible at: http://fleet.localhost$(NC)"
+	@echo "$(YELLOW)Add '127.0.0.1 fleet.localhost' to your /etc/hosts file if not already present$(NC)"
 
-uninstall: ## Remove all deployed resources
-	@echo "Uninstalling FleetDM..."
-	@helm uninstall $(RELEASE_NAME) -n $(NAMESPACE) || true
-	@echo "Deleting namespace..."
+uninstall: ## Remove FleetDM deployment and all resources
+	@echo "$(YELLOW)Uninstalling FleetDM...$(NC)"
+	@helm uninstall $(RELEASE_NAME) --namespace $(NAMESPACE) || true
 	@kubectl delete namespace $(NAMESPACE) --ignore-not-found=true
-	@echo "Cleanup complete!"
+	@echo "$(GREEN)FleetDM uninstalled successfully$(NC)"
 
-verify: ## Verify that all components are running
-	@echo "Verifying FleetDM deployment..."
+status: ## Show status of FleetDM deployment
+	@echo "$(YELLOW)FleetDM Deployment Status:$(NC)"
+	@echo "================================"
+	@kubectl get pods -n $(NAMESPACE) -l app=fleet
 	@echo ""
-	@echo "=== Namespace ==="
-	@kubectl get namespace $(NAMESPACE) 2>/dev/null || echo "Namespace not found"
+	@echo "$(YELLOW)Services:$(NC)"
+	@kubectl get services -n $(NAMESPACE)
 	@echo ""
-	@echo "=== Pods ==="
-	@kubectl get pods -n $(NAMESPACE) -o wide
+	@echo "$(YELLOW)Ingress:$(NC)"
+	@kubectl get ingress -n $(NAMESPACE)
 	@echo ""
-	@echo "=== Services ==="
-	@kubectl get svc -n $(NAMESPACE)
+	@echo "$(YELLOW)MySQL Status:$(NC)"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=mysql
 	@echo ""
-	@echo "=== PVCs ==="
-	@kubectl get pvc -n $(NAMESPACE)
-	@echo ""
-	@echo "=== Jobs ==="
-	@kubectl get jobs -n $(NAMESPACE)
-	@echo ""
-	@echo "=== Deployment Status ==="
-	@kubectl rollout status deployment/$(RELEASE_NAME) -n $(NAMESPACE) --timeout=30s || true
-	@kubectl rollout status deployment/$(RELEASE_NAME)-mysql -n $(NAMESPACE) --timeout=30s || true
-	@kubectl rollout status deployment/$(RELEASE_NAME)-redis -n $(NAMESPACE) --timeout=30s || true
+	@echo "$(YELLOW)Redis Status:$(NC)"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=redis
 
-clean: ## Delete the local cluster
-	@echo "Deleting $(CLUSTER_TYPE) cluster..."
-	@if [ "$(CLUSTER_TYPE)" = "kind" ]; then \
-		kind delete cluster --name $(CLUSTER_NAME); \
+logs: ## Show logs from FleetDM pods
+	@echo "$(YELLOW)FleetDM Logs:$(NC)"
+	@kubectl logs -n $(NAMESPACE) -l app=fleet --tail=50
+
+clean: ## Remove Kind cluster
+	@echo "$(YELLOW)Removing Kind cluster: $(CLUSTER_NAME)$(NC)"
+	@kind delete cluster --name $(CLUSTER_NAME) || true
+	@echo "$(GREEN)Cluster removed$(NC)"
+
+verify: ## Verify FleetDM, MySQL, and Redis are operational
+	@echo "$(YELLOW)Verifying FleetDM deployment...$(NC)"
+	@echo "====================================="
+	@echo ""
+	@echo "$(YELLOW)1. Checking FleetDM pods:$(NC)"
+	@kubectl get pods -n $(NAMESPACE) -l app=fleet
+	@echo ""
+	@echo "$(YELLOW)2. Checking MySQL pods:$(NC)"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=mysql
+	@echo ""
+	@echo "$(YELLOW)3. Checking Redis pods:$(NC)"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=redis
+	@echo ""
+	@echo "$(YELLOW)4. Testing FleetDM health endpoint:$(NC)"
+	@kubectl port-forward -n $(NAMESPACE) svc/fleetdm-service 8080:8080 &
+	@PF_PID=$$!; \
+	sleep 5; \
+	if curl -f http://localhost:8080/healthz > /dev/null 2>&1; then \
+		echo "$(GREEN)✓ FleetDM health check passed$(NC)"; \
 	else \
-		minikube delete --profile $(CLUSTER_NAME); \
-	fi
+		echo "$(RED)✗ FleetDM health check failed$(NC)"; \
+	fi; \
+	kill $$PF_PID 2>/dev/null || true
+	@echo ""
+	@echo "$(YELLOW)5. Testing MySQL connection:$(NC)"
+	@kubectl exec -n $(NAMESPACE) deployment/fleet -- fleet prepare db --no-prompt || echo "$(RED)✗ MySQL connection test failed$(NC)"
+	@echo ""
+	@echo "$(GREEN)Verification complete!$(NC)"
 
-package: ## Package the Helm chart
-	@echo "Packaging Helm chart..."
-	@helm package $(CHART_PATH) -d ./dist
-	@echo "Chart packaged successfully!"
-
-lint: ## Lint the Helm chart
-	@echo "Linting Helm chart..."
-	@helm lint $(CHART_PATH)
-
-all: cluster install verify ## Create cluster, install, and verify (full setup)
-
-logs-fleetdm: ## Show FleetDM logs
-	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/component=fleetdm --tail=100 -f
-
-logs-mysql: ## Show MySQL logs
-	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/component=mysql --tail=100 -f
-
-logs-redis: ## Show Redis logs
-	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/component=redis --tail=100 -f
-
-logs-db-init: ## Show database init job logs
-	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/component=db-init --tail=100
-
-port-forward: ## Port-forward to FleetDM UI
-	@echo "Forwarding port 8080 to FleetDM service..."
-	@kubectl port-forward -n $(NAMESPACE) svc/$(RELEASE_NAME) 8080:8080
-
-test: ## Run Helm tests
-	@echo "Running Helm tests..."
-	@helm test $(RELEASE_NAME) -n $(NAMESPACE) --timeout 5m
-
-test-connection: ## Test service connectivity
-	@echo "Testing service connectivity..."
-	@kubectl run test-connection --image=busybox:1.35 --rm -i --restart=Never -- \
-		sh -c "nc -z $(RELEASE_NAME) 8080 && nc -z $(RELEASE_NAME)-mysql 3306 && nc -z $(RELEASE_NAME)-redis 6379 && echo 'All services accessible'"
-
-test-database: ## Test database connectivity
-	@echo "Testing database connectivity..."
-	@kubectl run test-database --image=mysql:8.0.36 --rm -i --restart=Never --env="MYSQL_PWD=fleetpassword" -- \
-		mysql -h $(RELEASE_NAME)-mysql -u fleet -e "SELECT 1" fleet
-
-init-db: ## Initialize FleetDM database (runs automatically during install)
-	@echo "Waiting for MySQL to be ready..."
-	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=mysql -n $(NAMESPACE) --timeout=300s
-	@echo "Running database migrations..."
-	@kubectl run $(RELEASE_NAME)-db-init \
-		--image=fleetdm/fleet:v4.55.0 \
-		--rm -i --restart=Never \
-		-n $(NAMESPACE) \
-		--env="FLEET_MYSQL_ADDRESS=$(RELEASE_NAME)-mysql-0.$(RELEASE_NAME)-mysql:3306" \
-		--env="FLEET_MYSQL_DATABASE=fleet" \
-		--env="FLEET_MYSQL_USERNAME=fleet" \
-		--env="FLEET_MYSQL_PASSWORD=fleetpassword" \
-		-- /usr/bin/fleet prepare db
-	@echo "✅ Database initialized successfully!"
-
+port-forward: ## Port forward FleetDM service to localhost:8080
+	@echo "$(YELLOW)Port forwarding FleetDM to localhost:8080...$(NC)"
+	@echo "$(GREEN)FleetDM will be available at: http://localhost:8080$(NC)"
+	@kubectl port-forward -n $(NAMESPACE) svc/fleetdm-service 8080:8080

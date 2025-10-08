@@ -1,236 +1,430 @@
-# FleetDM Kubernetes Deployment
+# FleetDM Helm Chart
 
-Helm chart for deploying FleetDM with MySQL and Redis on Kubernetes.
+Production-ready Helm chart for deploying FleetDM (Fleet Device Management) on Kubernetes, with local development support using Kind.
+
+## Overview
+
+FleetDM is an open-source device management platform built on osquery that provides:
+- **Device Inventory**: Comprehensive device discovery and management
+- **Query Execution**: Real-time SQL-based queries across thousands of devices
+- **Vulnerability Management**: Automated CVE detection and tracking
+- **Policy Enforcement**: Compliance monitoring and policy automation
+
+This Helm chart deploys:
+- **FleetDM Server**: Main application server with high availability
+- **MySQL**: Database for FleetDM data (Bitnami chart)
+- **Redis**: Caching layer for query results (Bitnami chart)
 
 ## Prerequisites
 
-- Docker
-- kubectl
-- Helm 3
-- Kind or Minikube
+### Local Development
+- [Docker](https://docs.docker.com/get-docker/) - Container runtime
+- [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/) - Kubernetes in Docker
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) - Kubernetes CLI
+- [Helm](https://helm.sh/docs/intro/install/) v3.x - Kubernetes package manager
+
+### Production Deployment
+- Kubernetes cluster (GKE, EKS, or AKS)
+- Managed database service (Cloud SQL, RDS, etc.)
+- Managed cache service (Cloud Memorystore, ElastiCache, etc.)
 
 ## Quick Start
 
-```bash
-make cluster    # Create local cluster
-make install    # Deploy FleetDM
-make verify     # Check status
-```
+### 1. Create Local Cluster
 
-Access UI:
-```bash
-make port-forward
-# Visit http://localhost:8080
-```
-
-## Installation
-
-### 1. Create Cluster
-
-Using Kind (default):
 ```bash
 make cluster
 ```
 
-Using Minikube:
-```bash
-make cluster CLUSTER_TYPE=minikube
-```
+This creates a Kind cluster with:
+- Multi-node setup (1 control-plane + 2 workers)
+- NGINX Ingress Controller
+- Port forwarding for HTTP/HTTPS
 
-### 2. Deploy FleetDM
+### 2. Install FleetDM
 
 ```bash
 make install
 ```
 
-This automatically:
-- Deploys FleetDM (2 replicas), MySQL, and Redis
-- Initializes database with `fleet prepare db`
-- Configures persistent storage
+This will:
+- Create the `fleetdm` namespace
+- Install MySQL and Redis via Helm charts
+- Deploy FleetDM with automatic database migration (`fleet prepare db`)
+- Wait for all pods to be ready (with extended timeouts)
 
-### 3. Verification Steps
+### 3. Access FleetDM
 
-**Check pods are running:**
+Add to your `/etc/hosts`:
+```
+127.0.0.1 fleet.localhost
+```
+
+Access FleetDM at: **http://fleet.localhost**
+
+## Installation & Teardown Instructions
+
+### Installation Steps
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd fleetdm
+   ```
+
+2. **Create the Kind cluster**:
+   ```bash
+   make cluster
+   ```
+   Wait for the NGINX Ingress Controller to be ready (~2 minutes).
+
+3. **Install FleetDM**:
+   ```bash
+   make install
+   ```
+   Installation takes ~10-15 minutes due to database migrations.
+
+4. **Verify installation**:
+   ```bash
+   make verify
+   ```
+
+### Teardown Steps
+
+**Remove FleetDM only** (keep cluster):
+```bash
+make uninstall
+```
+
+**Remove everything** (including Kind cluster):
+```bash
+make clean
+```
+
+## Verification Steps
+
+### Automated Verification
+
+Run the built-in verification script:
+
+```bash
+make verify
+```
+
+This checks:
+1. ✓ FleetDM pods are running
+2. ✓ MySQL pods are running
+3. ✓ Redis pods are running
+4. ✓ FleetDM `/healthz` endpoint responds
+5. ✓ Database connection is working
+
+### Manual Verification
+
+**Check pod status**:
 ```bash
 kubectl get pods -n fleetdm
 ```
 
 Expected output:
 ```
-NAME                       READY   STATUS    RESTARTS   AGE
-fleetdm-xxx-xxx            1/1     Running   0          2m
-fleetdm-xxx-xxx            1/1     Running   0          2m
-fleetdm-mysql-0            1/1     Running   0          2m
-fleetdm-redis-0            1/1     Running   0          2m
+NAME                     READY   STATUS    RESTARTS   AGE
+fleet-xxx-yyy            1/1     Running   0          5m
+fleet-xxx-zzz            1/1     Running   0          5m
+fleetdm-mysql-0          1/1     Running   0          5m
+fleetdm-redis-master-0   1/1     Running   0          5m
 ```
 
-**Test FleetDM:**
+**Test health endpoint**:
 ```bash
-kubectl run test --image=curlimages/curl --rm -i --restart=Never -n fleetdm \
-  -- curl -f http://fleetdm:8080/healthz
-# Should return HTTP 200
+curl http://fleet.localhost/healthz
+# Should return: {"status":"ok"}
 ```
 
-**Test MySQL:**
+**View logs**:
 ```bash
-kubectl exec -n fleetdm fleetdm-mysql-0 -- mysqladmin ping -u root -pfleetroot
-# Should return "mysqld is alive"
+# FleetDM logs
+kubectl logs -n fleetdm -l app=fleet --tail=50
+
+# MySQL logs
+kubectl logs -n fleetdm fleetdm-mysql-0 --tail=50
+
+# Redis logs
+kubectl logs -n fleetdm fleetdm-redis-master-0 --tail=50
 ```
 
-**Test Redis:**
+**Port forward for direct access**:
 ```bash
-kubectl exec -n fleetdm fleetdm-redis-0 -- redis-cli ping
-# Should return "PONG"
-```
-
-Or use the built-in verify command:
-```bash
-make verify
-```
-
-## Access FleetDM UI
-
-### Local Access
-
-Port forward to access UI:
-```bash
-make port-forward
-```
-Then open http://localhost:8080
-
-### Agent Reachability
-
-FleetDM is exposed via NodePort 30080 and mapped to host port 8080.
-
-**For Kind:**
-```bash
-curl http://localhost:8080/healthz
-```
-
-**For Minikube:**
-```bash
-minikube service fleetdm -n fleetdm
-```
-
-Agents can connect to FleetDM at the exposed URL.
-
-## Configuration
-
-Customize deployment by editing `helm/fleetdm/values.yaml`:
-
-```yaml
-fleetdm:
-  replicaCount: 2
-  resources:
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-
-mysql:
-  persistence:
-    size: 10Gi
-
-redis:
-  persistence:
-    size: 5Gi
-```
-
-## Cleanup
-
-Remove deployment:
-```bash
-make uninstall
-```
-
-Delete cluster:
-```bash
-make clean
+kubectl port-forward -n fleetdm svc/fleetdm-service 8080:8080
+# Access at http://localhost:8080
 ```
 
 ## Makefile Targets
 
-| Command | Description |
-|---------|-------------|
-| `make cluster` | Create local Kubernetes cluster |
+| Target | Description |
+|--------|-------------|
+| `make cluster` | Create Kind cluster with NGINX Ingress |
 | `make install` | Install FleetDM Helm chart |
-| `make uninstall` | Remove all deployed resources |
-| `make verify` | Check deployment status |
-| `make port-forward` | Forward port to FleetDM UI |
-| `make clean` | Delete cluster |
-| `make logs-fleetdm` | View FleetDM logs |
-| `make logs-mysql` | View MySQL logs |
-| `make logs-redis` | View Redis logs |
+| `make uninstall` | Remove FleetDM deployment |
+| `make clean` | Delete Kind cluster |
+| `make verify` | Run verification tests |
+| `make status` | Show pod status |
+| `make logs` | View FleetDM logs |
+| `make port-forward` | Forward FleetDM service to localhost:8080 |
+| `make help` | Show all available targets |
 
 ## CI/CD Pipeline
 
-GitHub Actions pipeline automatically:
+A GitHub Actions workflow is included for automated Helm chart releases:
 
-### On Pull Requests
-- Lints Helm chart
-- Validates Kubernetes manifests
-- Tests deployment on Kind cluster
+**Workflow**: `.github/workflows/ci.yml`
 
-### On Push to Main
-- Runs full test suite
-- Packages Helm chart
-- Creates GitHub artifacts
+**Triggers**:
+- Push to `main` branch
+- Git tags matching `v*.*.*`
 
-### On Release
-- Publishes chart package
-- Creates release notes
-- Uploads chart artifacts
+**Pipeline Steps**:
+1. Checkout code
+2. Set up Helm
+3. Lint Helm chart (`helm lint`)
+4. Package Helm chart
+5. Create GitHub Release with chart artifact
+6. (Optional) Publish to Helm repository
 
-View pipeline status in `.github/workflows/`.
+**Additional Workflows**:
+- `.github/workflows/lint.yml` - YAML and Helm linting on PRs
+- Runs `helm lint` and `yamllint` on all chart files
 
-## Troubleshooting
+## Configuration
 
-**Pods not starting:**
-```bash
-kubectl get events -n fleetdm --sort-by='.lastTimestamp'
-kubectl logs -n fleetdm -l app.kubernetes.io/component=fleetdm
+### Key Configuration Options
+
+Edit `fleet/values.yaml` to customize:
+
+```yaml
+# FleetDM replicas
+replicas: 3
+
+# Resource limits
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  host: fleet.localhost
+
+# MySQL configuration
+mysql:
+  enabled: true
+  primary:
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+# Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7.2-alpine"
 ```
 
-**Database issues:**
-```bash
-kubectl logs -n fleetdm -l app.kubernetes.io/component=db-init
-```
+### Database Migration
 
-**Can't access UI:**
-```bash
-kubectl get svc -n fleetdm
-kubectl port-forward -n fleetdm svc/fleetdm 8080:8080
-```
+The database migration (`fleet prepare db`) runs automatically on installation via a Kubernetes Job:
+- Template: `fleet/templates/job-migration.yaml`
+- Hook: `helm.sh/hook: post-install,post-upgrade`
+- Ensures FleetDM database schema is up-to-date before pods start
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         FleetDM Application         │
-│         (2 replicas)                │
-└──────────────┬──────────────────────┘
-               │
-        ┌──────┴──────┐
-        │             │
-┌───────▼────┐  ┌─────▼──────┐
-│  MySQL     │  │   Redis    │
-│  (StatefulSet)│  │ (StatefulSet)│
-│  10Gi PVC  │  │  5Gi PVC   │
-└────────────┘  └────────────┘
+┌──────────────────────────────────────────────────────┐
+│                 Internet / Localhost                  │
+└───────────────────────┬──────────────────────────────┘
+                        │
+                 ┌──────▼─────┐
+                 │   Ingress  │
+                 │   (NGINX)  │
+                 └──────┬─────┘
+                        │
+          ┌─────────────┼─────────────┐
+          │             │             │
+     ┌────▼────┐   ┌────▼────┐   ┌────▼────┐
+     │ Fleet   │   │ Fleet   │   │ Fleet   │
+     │ Pod 1   │   │ Pod 2   │   │ Pod 3   │
+     └────┬────┘   └────┬────┘   └────┬────┘
+          │             │             │
+          └─────────────┼─────────────┘
+                        │
+          ┌─────────────┴─────────────┐
+          │                           │
+     ┌────▼────┐                 ┌────▼────┐
+     │  MySQL  │                 │  Redis  │
+     │ (Bitnami│                 │(Bitnami)│
+     │  Chart) │                 │ Chart)  │
+     └─────────┘                 └─────────┘
 ```
 
-Components:
-- **FleetDM**: OSQuery fleet manager with web UI
-- **MySQL 8.0**: Primary database with persistent storage
-- **Redis 7.2**: Cache and session store
-- **Init Job**: Automatically runs database migrations
+## Production Deployment
 
-## Notes
+For production deployments, see the [detailed architecture guide](docs/architecture.md) which covers:
+- Multi-environment setup (Dev/Staging/Prod)
+- External managed databases (Cloud SQL, RDS)
+- High availability and scaling
+- Security best practices (TLS, network policies, RBAC)
+- Monitoring and observability
+- Cost optimization strategies
 
-- Database initialization runs automatically on install
-- StatefulSets ensure data persistence across pod restarts
-- Default credentials in `values.yaml` should be changed for production
-- TLS disabled by default for local development
+### Quick Production Tips
+
+1. **Use external managed services**:
+   ```yaml
+   mysql:
+     enabled: false  # Use Cloud SQL or RDS
+   redis:
+     enabled: false  # Use Memorystore or ElastiCache
+   ```
+
+2. **Enable TLS**:
+   ```yaml
+   fleet:
+     tls:
+       enabled: true
+       certManager: true
+   ```
+
+3. **Configure autoscaling**:
+   ```yaml
+   autoscaling:
+     enabled: true
+     minReplicas: 3
+     maxReplicas: 10
+   ```
+
+## Troubleshooting
+
+### Common Issues
+
+**1. Pods not starting**:
+```bash
+kubectl describe pods -n fleetdm
+kubectl logs -n fleetdm <pod-name>
+```
+
+**2. Timeout during installation**:
+- Database migrations can take 5-10 minutes
+- Increase timeout: `helm install --timeout=20m`
+
+**3. Ingress not working**:
+```bash
+# Check ingress status
+kubectl get ingress -n fleetdm
+kubectl describe ingress -n fleetdm
+
+# Verify /etc/hosts entry
+ping fleet.localhost
+```
+
+**4. Port conflicts**:
+- Ensure ports 80, 443, 8080 are available
+- Check for other Kind clusters: `kind get clusters`
+
+**5. Redis/MySQL image pull failures**:
+- Bitnami images changed access policy (Sept 2025)
+- Chart uses official Docker images with Bitnami Helm charts
+- Check `values.yaml` for image overrides
+
+### Reset Everything
+
+If you encounter persistent issues:
+```bash
+make clean
+make cluster
+make install
+```
+
+## Development
+
+### Local Development Workflow
+
+```bash
+# Start cluster and install
+make cluster
+make install
+
+# Make changes to chart
+vim fleet/values.yaml
+
+# Upgrade deployment
+helm upgrade fleetdm ./fleet -n fleetdm
+
+# View logs
+make logs
+
+# Clean up
+make clean
+```
+
+### Custom Values
+
+Create `custom-values.yaml`:
+```yaml
+replicas: 1
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+```
+
+Install with custom values:
+```bash
+helm install fleetdm ./fleet -n fleetdm -f custom-values.yaml
+```
+
+## FleetDM Agent Configuration
+
+Once FleetDM is running, configure agents to connect:
+
+1. **Get enrollment secret**:
+   ```bash
+   kubectl exec -n fleetdm deployment/fleet -- \
+     fleet get enroll-secrets
+   ```
+
+2. **Install osquery on endpoints**:
+   ```bash
+   # macOS/Linux
+   curl -L https://osquery.io/downloads | bash
+   
+   # Configure osquery to connect
+   osqueryd --flagfile=/path/to/osquery.flags \
+     --enroll_secret_path=/path/to/secret
+   ```
+
+3. **Verify in FleetDM UI**:
+   - Navigate to http://fleet.localhost
+   - Go to "Hosts" to see connected devices
+
+## Resources
+
+- [FleetDM Official Documentation](https://fleetdm.com/docs)
+- [FleetDM GitHub Repository](https://github.com/fleetdm/fleet)
+- [FleetDM Infrastructure Examples](https://github.com/fleetdm/fleet/tree/main/infrastructure)
+- [FleetDM Community Slack](https://fleetdm.com/slack)
+- [Architectural Design Document](docs/architecture.md)
 
 ## License
 
-MIT
+This Helm chart is provided as-is for demonstration and production use. FleetDM is licensed under the MIT License.
+
+---
+
+**Note**: This project was created as part of a DevOps assignment demonstrating Kubernetes, Helm, and infrastructure automation best practices.
